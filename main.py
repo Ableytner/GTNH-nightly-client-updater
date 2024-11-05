@@ -48,7 +48,7 @@ def main():
         raise e
 
     print(f"update to nightly-{target_nightly} succeeded!")
-
+    shutil.rmtree(ensure_temp_dir())
 
 def get_nightly_build_number(server_host: str, server_port: int = 25565) -> int:
     server = mcstatus.JavaServer(server_host, server_port)
@@ -197,7 +197,10 @@ def ensure_storage_dir() -> str:
 def ensure_temp_dir() -> str:
     temp_path = os.path.abspath("./temp")
 
-    os.makedirs(temp_path, exist_ok=True)
+    if os.path.isdir(temp_path):
+        shutil.rmtree(temp_path)
+
+    os.makedirs(temp_path)
 
     return temp_path
 
