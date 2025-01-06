@@ -83,7 +83,7 @@ def download_nightly_zip(github_token: str, nightly_build: int, new_java: bool =
         "X-GitHub-Api-Version": "2022-11-28"
     }
 
-    r = session.get("https://api.github.com/repos/GTNewHorizons/DreamAssemblerXXL/actions/runs", params={"per_page": "100"})
+    r = session.get("https://api.github.com/repos/GTNewHorizons/DreamAssemblerXXL/actions/workflows/58547244/runs", params={"per_page": "100"})
 
     runs = r.json()["workflow_runs"]
     target_run = None
