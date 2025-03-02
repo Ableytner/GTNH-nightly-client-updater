@@ -156,16 +156,25 @@ def backup_instance(instance_path: str) -> str:
     storage_path = ensure_storage_dir()
     backup_dir = os.path.join(storage_path, "backup")
 
-    backup_id = 0
+    backup_ids = []
     for backup in os.listdir(backup_dir):
         matches = re.findall(r"(backup-)(\d+)(.zip)", backup)
-        if len(matches) > 0 and int(matches[0][1]) > backup_id:
-            backup_id = int(matches[0][1])
+        if len(matches) == 0:
+            raise Exception(f"Couldn't find backup_id in filename {backup}")
 
-    backup_path = os.path.join(backup_dir, f"backup-{backup_id}.zip")
+        backup_ids.append(int(matches[0][1]) + 1)
+
+    backup_ids.sort()
+
+    # delete old backup if over limit
+    if len(backup_ids) > 5:
+        os.remove(os.path.join(backup_dir, f"backup-{backup_ids[0]}.zip"))
+
+    backup_path = os.path.join(backup_dir, f"backup-{backup_ids[-1] + 1}.zip")
+
     print(f"backing up instance to '{backup_path}'...")
 
-    backup_file = shutil.make_archive(f"backup-{backup_id}", "zip", instance_path)
+    backup_file = shutil.make_archive(backup_path, "zip", instance_path)
     shutil.move(backup_file, backup_path)
 
     return backup_path
