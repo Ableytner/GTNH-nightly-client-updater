@@ -31,6 +31,10 @@ def main():
         target_nightly = ask_user_for_input()
         if target_nightly is None:
             exit(0)
+    
+    if "CURRENTLY_INSTALLED" in config and target_nightly == config["CURRENTLY_INSTALLED"]:
+        print("target nightly build is already installed, exiting...")
+        return
 
     client_zip = download_nightly_zip(config["GITHUB_TOKEN"], target_nightly, new_java=True) # TODO: read new_java from instance dir
 
@@ -48,6 +52,10 @@ def main():
 
         raise e
 
+    config["CURRENTLY_INSTALLED"] = target_nightly
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(config, f)
+
     print(f"update to nightly-{target_nightly} succeeded!")
     shutil.rmtree(ensure_temp_dir())
 
@@ -62,7 +70,7 @@ def ask_user_for_input() -> int | None:
     return None
 
 def get_nightly_build_number(server_host: str, server_port: int = 25565) -> int | None:
-    server = mcstatus.JavaServer(server_host, server_port)
+    server = mcstatus.JavaServer(server_host, server_port, timeout=10)
 
     try:
         status = server.status()
