@@ -14,22 +14,23 @@ def main():
         raise FileNotFoundError()
     
     with open(CONFIG_PATH, "r") as f:
-        config = json.load(f)
+        config: dict = json.load(f)
     
-    if "SERVER_HOSTNAME" in config:
-        server_host: str = config["SERVER_HOSTNAME"]
-    elif "SERVER_IP" in config:
-        server_host: str = config["SERVER_IP"]
+    if "SERVER_HOSTNAME" in config or "SERVER_IP" in config:
+        server_host: str = config.get("SERVER_HOSTNAME", None) or config.get("SERVER_IP", None)
+
+        if not ":" in server_host:
+            target_nightly = get_nightly_build_number(server_host)
+        else:
+            host, port = server_host.split(":", maxsplit=1)
+            target_nightly = get_nightly_build_number(host, port)
+
+    if target_nightly is not None:
+        print(f"found target nightly build {target_nightly}")
     else:
-        raise KeyError()
-    
-    if not ":" in server_host:
-        target_nightly = get_nightly_build_number(server_host)
-    else:
-        host, port = server_host.split(":", maxsplit=1)
-        target_nightly = get_nightly_build_number(host, port)
-    
-    print(f"found target nightly build {target_nightly}")
+        target_nightly = ask_user_for_input()
+        if target_nightly is None:
+            exit(0)
 
     client_zip = download_nightly_zip(config["GITHUB_TOKEN"], target_nightly, new_java=True) # TODO: read new_java from instance dir
 
@@ -50,21 +51,34 @@ def main():
     print(f"update to nightly-{target_nightly} succeeded!")
     shutil.rmtree(ensure_temp_dir())
 
-def get_nightly_build_number(server_host: str, server_port: int = 25565) -> int:
+def ask_user_for_input() -> int | None:
+    user_input = "a"
+    while not user_input.isdigit() and user_input != "":
+        user_input = input(f"which nightly version do you want to install: ")
+
+    if user_input.isdigit():
+        return int(user_input)
+    
+    return None
+
+def get_nightly_build_number(server_host: str, server_port: int = 25565) -> int | None:
     server = mcstatus.JavaServer(server_host, server_port)
 
     try:
         status = server.status()
         motd = str(status.motd.raw)
     except ConnectionResetError:
-        raise Exception(f"cannot reach server {server_host}:{server_port}")
+        print(f"cannot reach server {server_host}:{server_port}")
+        return None
 
     matches = re.findall(r"(nightly-?)(\d+)", motd)
 
     if len(matches) == 0:
-        raise ValueError(f"could not discern nightly version from motd '{motd}'")
+        print(f"could not discern nightly version from motd '{motd}'")
+        return None
     if len(matches) > 1:
-        raise ValueError(f"found multiple nightly versions in motd '{motd}'")
+        print(f"found multiple nightly versions in motd '{motd}'")
+        return None
     
     return int(matches[0][1])
 
