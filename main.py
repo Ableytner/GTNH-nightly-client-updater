@@ -36,7 +36,10 @@ def main():
         print("target nightly build is already installed, exiting...")
         return
 
-    client_zip = download_nightly_zip(config["GITHUB_TOKEN"], target_nightly, new_java=True) # TODO: read new_java from instance dir
+    try:
+        client_zip = download_nightly_zip_from_local(target_nightly, new_java=True)
+    except:
+        client_zip = download_nightly_zip_from_github(config["GITHUB_TOKEN"], target_nightly, new_java=True) # TODO: read new_java from instance dir
 
     extracted_client_zip = extract_nigthly_zip(client_zip)
 
@@ -90,7 +93,28 @@ def get_nightly_build_number(server_host: str, server_port: int = 25565) -> int 
     
     return int(matches[0][1])
 
-def download_nightly_zip(github_token: str, nightly_build: int, new_java: bool = False) -> str:
+def download_nightly_zip_from_local(nightly_build: int, new_java: bool = False) -> str:
+    if not new_java:
+        raise Exception("Local server download only supports Java 21")
+
+    storage_path = ensure_storage_dir()
+    download_path = os.path.join(storage_path, "download", f"nightly{nightly_build}-client.zip")
+
+    if os.path.isfile(download_path):
+        print("using cached client zip file")
+        return download_path
+
+    session = requests.Session()
+
+    print("downloading client zip file from ableytner's server...")
+    r = session.get(f"https://files.ableytner.duckdns.org/nightly{nightly_build}-client.zip")
+
+    with open(download_path, "wb") as f:
+        f.write(r.content)
+
+    return download_path
+
+def download_nightly_zip_from_github(github_token: str, nightly_build: int, new_java: bool = False) -> str:
     storage_path = ensure_storage_dir()
     download_path = os.path.join(storage_path, "download", f"nightly{nightly_build}-client.zip")
 
@@ -143,15 +167,21 @@ def extract_nigthly_zip(client_zip_path: str) -> str:
 
     with zipfile.ZipFile(client_zip_path, "r") as f:
         f.extractall(tempdir)
-    
-    inner_client_zip = os.path.join(tempdir, os.listdir(tempdir)[0])
-    inner_client_zip_dir = os.path.join(tempdir, "client")
 
-    os.mkdir(inner_client_zip_dir)
-    with zipfile.ZipFile(inner_client_zip, "r") as f:
-        f.extractall(inner_client_zip_dir)
+    zipfiles_names = [item for item in os.listdir(tempdir) if item.endswith(".zip")]
 
-    return os.path.join(inner_client_zip_dir, "GT New Horizons nightly")
+    if len(zipfiles_names) > 0:
+        # extract inner zip file
+        inner_client_zip = os.path.join(tempdir, zipfiles_names[0])
+        inner_client_zip_dir = os.path.join(tempdir, "client")
+
+        os.mkdir(inner_client_zip_dir)
+        with zipfile.ZipFile(inner_client_zip, "r") as f:
+            f.extractall(inner_client_zip_dir)
+
+        return os.path.join(inner_client_zip_dir, "GT New Horizons nightly")
+    else:
+        return os.path.join(tempdir, "GT New Horizons nightly")
 
 def install_new_nightly(nightly_path: str, instance_path: str) -> None:
     remove_and_move(os.path.join(nightly_path, "libraries"), os.path.join(instance_path, "libraries"))
