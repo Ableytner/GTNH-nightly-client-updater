@@ -37,8 +37,13 @@ def main():
         return
 
     try:
-        client_zip = download_nightly_zip_from_local(target_nightly, new_java=True)
-    except:
+        client_zip = download_nightly_zip_from_mirror(target_nightly, new_java=True)
+    except Exception as e:
+        print(str(e))
+
+        if "GITHUB_TOKEN" not in config or config["GITHUB_TOKEN"] == "":
+            raise Exception("You have to provide a GITHUB_TOKEN in config.json in order to download from github")
+
         client_zip = download_nightly_zip_from_github(config["GITHUB_TOKEN"], target_nightly, new_java=True) # TODO: read new_java from instance dir
 
     extracted_client_zip = extract_nigthly_zip(client_zip)
@@ -93,9 +98,9 @@ def get_nightly_build_number(server_host: str, server_port: int = 25565) -> int 
     
     return int(matches[0][1])
 
-def download_nightly_zip_from_local(nightly_build: int, new_java: bool = False) -> str:
+def download_nightly_zip_from_mirror(nightly_build: int, new_java: bool = False) -> str:
     if not new_java:
-        raise Exception("Local server download only supports Java 21")
+        raise Exception("mirror server download only supports Java 21")
 
     storage_path = ensure_storage_dir()
     download_path = os.path.join(storage_path, "download", f"nightly{nightly_build}-client.zip")
@@ -105,9 +110,14 @@ def download_nightly_zip_from_local(nightly_build: int, new_java: bool = False) 
         return download_path
 
     session = requests.Session()
+    download_url = f"https://files.ableytner.duckdns.org/nightly{nightly_build}-client.zip"
 
-    print("downloading client zip file from ableytner's server...")
-    r = session.get(f"https://files.ableytner.duckdns.org/nightly{nightly_build}-client.zip")
+    r = session.head(download_url)
+    if r.status_code != 200:
+        raise Exception("client zip file not found on ableytner's mirror server")
+
+    print("downloading client zip file from ableytner's mirror server...")
+    r = session.get(download_url)
 
     with open(download_path, "wb") as f:
         f.write(r.content)
@@ -154,7 +164,7 @@ def download_nightly_zip_from_github(github_token: str, nightly_build: int, new_
     if target_artifact is None:
         raise Exception("target client zipfile could not be fetched")
 
-    print("downloading client zip file, this will take a few minutes...")
+    print("downloading client zip file from github, this will take a few minutes...")
     r = session.get(f"{target_artifact['archive_download_url']}")
 
     with open(download_path, "wb") as f:
@@ -200,7 +210,7 @@ def backup_instance(instance_path: str) -> str:
         if len(matches) == 0:
             raise Exception(f"Couldn't find backup_id in filename {backup}")
 
-        backup_ids.append(int(matches[0][1]) + 1)
+        backup_ids.append(int(matches[0][1]))
 
     backup_ids.sort()
 
