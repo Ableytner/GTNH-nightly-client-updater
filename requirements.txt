@@ -1,2 +1,3 @@
+abllib==1.4.0
 mcstatus
 requests

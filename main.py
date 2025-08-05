@@ -1,135 +1,141 @@
-import json
 import os
 import re
 import shutil
 import zipfile
 
+from abllib import PersistentStorage, log
 import mcstatus
 import requests
+
+logger = log.get_logger()
 
 CONFIG_PATH = "./config.json"
 
 def main():
+    log.initialize(log.LogLevel.INFO)
+    log.add_console_handler()
+
+    PersistentStorage.initialize(CONFIG_PATH)
+
     if not os.path.isfile(CONFIG_PATH):
         raise FileNotFoundError()
     
-    with open(CONFIG_PATH, "r") as f:
-        config: dict = json.load(f)
-    
-    if "SERVER_HOSTNAME" in config or "SERVER_IP" in config:
-        server_host: str = config.get("SERVER_HOSTNAME", None) or config.get("SERVER_IP", None)
+    if "SERVER_HOSTNAME" in PersistentStorage or "SERVER_IP" in PersistentStorage:
+        server_host: str = PersistentStorage.get("SERVER_HOSTNAME", None) or PersistentStorage.get("SERVER_IP", None)
 
         if not ":" in server_host:
-            target_nightly = get_nightly_build_number(server_host)
+            target_daily = get_daily_build_number(server_host)
         else:
             host, port = server_host.split(":", maxsplit=1)
-            target_nightly = get_nightly_build_number(host, port)
+            target_daily = get_daily_build_number(host, port)
 
-    if target_nightly is not None:
-        print(f"found target nightly build {target_nightly}")
+    if target_daily is not None:
+        logger.info(f"found target daily build {target_daily}")
     else:
-        target_nightly = ask_user_for_input()
-        if target_nightly is None:
+        target_daily = ask_user_for_input()
+        if target_daily is None:
             exit(0)
     
-    if "CURRENTLY_INSTALLED" in config and target_nightly == config["CURRENTLY_INSTALLED"]:
-        print("target nightly build is already installed, exiting...")
+    if "CURRENTLY_INSTALLED" in PersistentStorage and target_daily == PersistentStorage["CURRENTLY_INSTALLED"]:
+        logger.info("target daily build is already installed, exiting...")
         return
 
     try:
-        client_zip = download_nightly_zip_from_mirror(target_nightly, new_java=True)
+        client_zip = download_daily_zip_from_mirror(target_daily, new_java=True)
     except Exception as e:
-        print(str(e))
+        logger.exception()
 
-        if "GITHUB_TOKEN" not in config or config["GITHUB_TOKEN"] == "":
+        if "GITHUB_TOKEN" not in PersistentStorage or PersistentStorage["GITHUB_TOKEN"] == "":
             raise Exception("You have to provide a GITHUB_TOKEN in config.json in order to download from github")
 
-        client_zip = download_nightly_zip_from_github(config["GITHUB_TOKEN"], target_nightly, new_java=True) # TODO: read new_java from instance dir
+        client_zip = download_daily_zip_from_github(PersistentStorage["GITHUB_TOKEN"], target_daily, new_java=True) # TODO: read new_java from instance dir
 
-    extracted_client_zip = extract_nigthly_zip(client_zip)
+    extracted_client_zip = extract_daily_zip(client_zip)
 
-    add_additional_mods(config["ADDITIONAL_MODS"], config["INSTANCE_PATH"], extracted_client_zip)
+    add_additional_mods(PersistentStorage["ADDITIONAL_MODS"], PersistentStorage["INSTANCE_PATH"], extracted_client_zip)
 
-    backup_zip = backup_instance(config["INSTANCE_PATH"])
+    backup_zip = backup_instance(PersistentStorage["INSTANCE_PATH"])
 
     try:
-        install_new_nightly(extracted_client_zip, config["INSTANCE_PATH"])
+        install_new_daily(extracted_client_zip, PersistentStorage["INSTANCE_PATH"])
     except Exception as e:
-        print("Install failed, restoring backup...")
-        restore_instance(config["INSTANCE_PATH"], backup_zip)
+        logger.error("Install failed, restoring backup...")
+        restore_instance(PersistentStorage["INSTANCE_PATH"], backup_zip)
 
         raise e
 
-    config["CURRENTLY_INSTALLED"] = target_nightly
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(config, f)
+    PersistentStorage["CURRENTLY_INSTALLED"] = target_daily
+    PersistentStorage.save_to_disk()
 
-    print(f"update to nightly-{target_nightly} succeeded!")
+    logger.info(f"update to daily-{target_daily} succeeded!")
     shutil.rmtree(ensure_temp_dir())
 
 def ask_user_for_input() -> int | None:
     user_input = "a"
     while not user_input.isdigit() and user_input != "":
-        user_input = input(f"which nightly version do you want to install: ")
+        user_input = input(f"which daily version do you want to install: ")
 
     if user_input.isdigit():
         return int(user_input)
     
     return None
 
-def get_nightly_build_number(server_host: str, server_port: int = 25565) -> int | None:
+def get_daily_build_number(server_host: str, server_port: int = 25565) -> int | None:
     server = mcstatus.JavaServer(server_host, server_port, timeout=10)
 
     try:
         status = server.status()
         motd = str(status.motd.raw)
     except ConnectionResetError:
-        print(f"cannot reach server {server_host}:{server_port}")
+        logger.warning(f"cannot reach server {server_host}:{server_port}")
         return None
 
-    matches = re.findall(r"(nightly-?)(\d+)", motd)
+    matches = re.findall(r"(daily-?)(\d+)", motd)
 
     if len(matches) == 0:
-        print(f"could not discern nightly version from motd '{motd}'")
+        logger.warning(f"could not discern daily version from motd '{motd}'")
         return None
     if len(matches) > 1:
-        print(f"found multiple nightly versions in motd '{motd}'")
+        logger.warning(f"found multiple daily versions in motd '{motd}'")
         return None
     
     return int(matches[0][1])
 
-def download_nightly_zip_from_mirror(nightly_build: int, new_java: bool = False) -> str:
+def download_daily_zip_from_mirror(daily_build: int, new_java: bool = False) -> str:
     if not new_java:
         raise Exception("mirror server download only supports Java 21")
 
     storage_path = ensure_storage_dir()
-    download_path = os.path.join(storage_path, "download", f"nightly{nightly_build}-client.zip")
+    download_path = os.path.join(storage_path, "download", f"daily{daily_build}-client.zip")
 
     if os.path.isfile(download_path):
-        print("using cached client zip file")
+        logger.info("using cached client zip file")
         return download_path
 
     session = requests.Session()
-    download_url = f"https://files.ableytner.duckdns.org/nightly{nightly_build}-client.zip"
+    download_url = f"https://files.ableytner.at/daily{daily_build}-client.zip"
 
     r = session.head(download_url)
     if r.status_code != 200:
         raise Exception("client zip file not found on ableytner's mirror server")
 
-    print("downloading client zip file from ableytner's mirror server...")
-    r = session.get(download_url)
+    logger.info("downloading client zip file from ableytner's mirror server...")
+    with session.get(download_url, stream=True) as archive:
+        archive.raise_for_status()
 
-    with open(download_path, "wb") as f:
-        f.write(r.content)
+        with open(download_path, 'wb') as f:
+            for chunk in archive.iter_content(chunk_size=512 * 1024): 
+                if chunk: # filter out keep-alive new chunks
+                    f.write(chunk)
 
     return download_path
 
-def download_nightly_zip_from_github(github_token: str, nightly_build: int, new_java: bool = False) -> str:
+def download_daily_zip_from_github(github_token: str, daily_build: int, new_java: bool = False) -> str:
     storage_path = ensure_storage_dir()
-    download_path = os.path.join(storage_path, "download", f"nightly{nightly_build}-client.zip")
+    download_path = os.path.join(storage_path, "download", f"daily{daily_build}-client.zip")
 
     if os.path.isfile(download_path):
-        print("using cached client zip file")
+        logger.info("using cached client zip file")
         return download_path
 
     session = requests.Session()
@@ -139,15 +145,15 @@ def download_nightly_zip_from_github(github_token: str, nightly_build: int, new_
         "X-GitHub-Api-Version": "2022-11-28"
     }
 
-    r = session.get("https://api.github.com/repos/GTNewHorizons/DreamAssemblerXXL/actions/workflows/58547244/runs", params={"per_page": "100"})
+    r = session.get("https://api.github.com/repos/GTNewHorizons/DreamAssemblerXXL/actions/workflows/daily-modpack-build.yml/runs", params={"per_page": "100"})
 
     runs = r.json()["workflow_runs"]
     target_run = None
     for run in runs:
-        if run["run_number"] == nightly_build:
+        if run["run_number"] == daily_build:
             target_run = run
     if target_run is None:
-        raise Exception("target nigthly build could not be fetched, maybe its older than 100 days?")
+        raise Exception("target daily build could not be fetched, maybe its older than 100 days?")
 
     r = session.get(f"{target_run['url']}/artifacts")
 
@@ -164,15 +170,18 @@ def download_nightly_zip_from_github(github_token: str, nightly_build: int, new_
     if target_artifact is None:
         raise Exception("target client zipfile could not be fetched")
 
-    print("downloading client zip file from github, this will take a few minutes...")
-    r = session.get(f"{target_artifact['archive_download_url']}")
+    logger.info("downloading client zip file from github, this will take a few minutes...")
+    with session.get(target_artifact['archive_download_url'], stream=True) as archive:
+        archive.raise_for_status()
 
-    with open(download_path, "wb") as f:
-        f.write(r.content)
+        with open(download_path, 'wb') as f:
+            for chunk in archive.iter_content(chunk_size=512 * 1024): 
+                if chunk: # filter out keep-alive new chunks
+                    f.write(chunk)
 
     return download_path
 
-def extract_nigthly_zip(client_zip_path: str) -> str:
+def extract_daily_zip(client_zip_path: str) -> str:
     tempdir = ensure_temp_dir()
 
     with zipfile.ZipFile(client_zip_path, "r") as f:
@@ -189,16 +198,16 @@ def extract_nigthly_zip(client_zip_path: str) -> str:
         with zipfile.ZipFile(inner_client_zip, "r") as f:
             f.extractall(inner_client_zip_dir)
 
-        return os.path.join(inner_client_zip_dir, "GT New Horizons nightly")
+        return os.path.join(inner_client_zip_dir, "GT New Horizons daily")
     else:
-        return os.path.join(tempdir, "GT New Horizons nightly")
+        return os.path.join(tempdir, "GT New Horizons daily")
 
-def install_new_nightly(nightly_path: str, instance_path: str) -> None:
-    remove_and_move(os.path.join(nightly_path, "libraries"), os.path.join(instance_path, "libraries"))
-    remove_and_move(os.path.join(nightly_path, "patches"), os.path.join(instance_path, "patches"))
-    remove_and_move(os.path.join(nightly_path, "mmc-pack.json"), os.path.join(instance_path, "mmc-pack.json"))
-    remove_and_move(os.path.join(nightly_path, ".minecraft", "config"), os.path.join(instance_path, ".minecraft", "config"))
-    remove_and_move(os.path.join(nightly_path, ".minecraft", "mods"), os.path.join(instance_path, ".minecraft", "mods"))
+def install_new_daily(daily_path: str, instance_path: str) -> None:
+    remove_and_move(os.path.join(daily_path, "libraries"), os.path.join(instance_path, "libraries"))
+    remove_and_move(os.path.join(daily_path, "patches"), os.path.join(instance_path, "patches"))
+    remove_and_move(os.path.join(daily_path, "mmc-pack.json"), os.path.join(instance_path, "mmc-pack.json"))
+    remove_and_move(os.path.join(daily_path, ".minecraft", "config"), os.path.join(instance_path, ".minecraft", "config"))
+    remove_and_move(os.path.join(daily_path, ".minecraft", "mods"), os.path.join(instance_path, ".minecraft", "mods"))
 
 def backup_instance(instance_path: str) -> str:
     storage_path = ensure_storage_dir()
@@ -220,7 +229,7 @@ def backup_instance(instance_path: str) -> str:
 
     backup_path = os.path.join(backup_dir, f"backup-{backup_ids[-1] + 1}.zip")
 
-    print(f"backing up instance to '{backup_path}'...")
+    logger.info(f"backing up instance to '{backup_path}'...")
 
     backup_file = shutil.make_archive(backup_path, "zip", instance_path)
     shutil.move(backup_file, backup_path)
@@ -255,7 +264,7 @@ def add_additional_mods(additional_mods: list[str], instance_path: str, extracte
             raise ValueError("Unknown additional mod type")
         
         shutil.copy(mod_file, mods_dir)
-        print(f"added additional mod {os.path.basename(mod_file)}")
+        logger.info(f"added additional mod {os.path.basename(mod_file)}")
 
 def ensure_storage_dir() -> str:
     storage_path = os.path.abspath("./storage")
