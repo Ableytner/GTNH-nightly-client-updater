@@ -73,7 +73,7 @@ def main():
 def ask_user_for_input() -> int | None:
     user_input = "a"
     while not user_input.isdigit() and user_input != "":
-        user_input = input(f"which daily version do you want to install: ")
+        user_input = input(f"which daily version do you want to install (currently: {PersistentStorage.get("CURRENTLY_INSTALLED")}): ")
 
     if user_input.isdigit():
         return int(user_input)
