@@ -43,7 +43,7 @@ def main():
     try:
         client_zip = download_daily_zip_from_mirror(target_daily, new_java=True)
     except Exception as e:
-        logger.exception()
+        logger.warning(str(e))
 
         if "GITHUB_TOKEN" not in PersistentStorage or PersistentStorage["GITHUB_TOKEN"] == "":
             raise Exception("You have to provide a GITHUB_TOKEN in config.json in order to download from github")
