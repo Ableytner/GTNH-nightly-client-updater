@@ -1,17 +1,22 @@
+"""The main module for updating your GTNH client"""
+
 import os
 import re
 import shutil
+import sys
 import zipfile
 
-from abllib import PersistentStorage, log
 import mcstatus
 import requests
+from abllib import PersistentStorage, log
 
 logger = log.get_logger()
 
 CONFIG_PATH = "./config.json"
 
 def main():
+    """The main function"""
+
     log.initialize(log.LogLevel.INFO)
     log.add_console_handler()
 
@@ -19,7 +24,9 @@ def main():
 
     if not os.path.isfile(CONFIG_PATH):
         raise FileNotFoundError()
-    
+
+    target_daily = None
+
     if "SERVER_HOSTNAME" in PersistentStorage or "SERVER_IP" in PersistentStorage:
         server_host: str = PersistentStorage.get("SERVER_HOSTNAME", None) or PersistentStorage.get("SERVER_IP", None)
 
@@ -34,8 +41,8 @@ def main():
     else:
         target_daily = ask_user_for_input()
         if target_daily is None:
-            exit(0)
-    
+            sys.exit(0)
+
     if "CURRENTLY_INSTALLED" in PersistentStorage and target_daily == PersistentStorage["CURRENTLY_INSTALLED"]:
         logger.info("target daily build is already installed, exiting...")
         return
@@ -46,9 +53,14 @@ def main():
         logger.warning(str(e))
 
         if "GITHUB_TOKEN" not in PersistentStorage or PersistentStorage["GITHUB_TOKEN"] == "":
+            # pylint: disable-next=raise-missing-from
             raise Exception("You have to provide a GITHUB_TOKEN in config.json in order to download from github")
 
-        client_zip = download_daily_zip_from_github(PersistentStorage["GITHUB_TOKEN"], target_daily, new_java=True) # TODO: read new_java from instance dir
+        client_zip = download_daily_zip_from_github(
+            PersistentStorage["GITHUB_TOKEN"],
+            target_daily,
+            new_java=True
+        ) # TODO: read new_java from instance dir
 
     extracted_client_zip = extract_daily_zip(client_zip)
 
@@ -71,19 +83,24 @@ def main():
     shutil.rmtree(ensure_temp_dir())
 
 def ask_user_for_input() -> int | None:
+    """Ask for the version to install"""
+
     user_input = "a"
     while not user_input.isdigit() and user_input != "":
         try:
-            user_input = input(f"which daily version do you want to install (currently: {PersistentStorage.get("CURRENTLY_INSTALLED")}): ")
+            user_input = input("which daily version do you want to install "
+                               f"(currently: {PersistentStorage.get("CURRENTLY_INSTALLED")}): ")
         except KeyboardInterrupt:
             return None
 
     if user_input.isdigit():
         return int(user_input)
-    
+
     return None
 
 def get_daily_build_number(server_host: str, server_port: int = 25565) -> int | None:
+    """Try to read version number from server MOTD"""
+
     server = mcstatus.JavaServer(server_host, server_port, timeout=10)
 
     try:
@@ -101,10 +118,12 @@ def get_daily_build_number(server_host: str, server_port: int = 25565) -> int | 
     if len(matches) > 1:
         logger.warning(f"found multiple daily versions in motd '{motd}'")
         return None
-    
+
     return int(matches[0][1])
 
 def download_daily_zip_from_mirror(daily_build: int, new_java: bool = False) -> str:
+    """Download given version zip from ableytners' mirror server"""
+
     if not new_java:
         raise Exception("mirror server download only supports Java 21")
 
@@ -127,13 +146,15 @@ def download_daily_zip_from_mirror(daily_build: int, new_java: bool = False) -> 
         archive.raise_for_status()
 
         with open(download_path, 'wb') as f:
-            for chunk in archive.iter_content(chunk_size=512 * 1024): 
+            for chunk in archive.iter_content(chunk_size=512 * 1024):
                 if chunk: # filter out keep-alive new chunks
                     f.write(chunk)
 
     return download_path
 
 def download_daily_zip_from_github(github_token: str, daily_build: int, new_java: bool = False) -> str:
+    """Download given version zip from github (very slow)"""
+
     storage_path = ensure_storage_dir()
     download_path = os.path.join(storage_path, "download", f"daily{daily_build}-client.zip")
 
@@ -148,7 +169,10 @@ def download_daily_zip_from_github(github_token: str, daily_build: int, new_java
         "X-GitHub-Api-Version": "2022-11-28"
     }
 
-    r = session.get("https://api.github.com/repos/GTNewHorizons/DreamAssemblerXXL/actions/workflows/daily-modpack-build.yml/runs", params={"per_page": "100"})
+    r = session.get(
+        "https://api.github.com/repos/GTNewHorizons/DreamAssemblerXXL/actions/workflows/daily-modpack-build.yml/runs",
+        params={"per_page": "100"}
+    )
 
     runs = r.json()["workflow_runs"]
     target_run = None
@@ -178,13 +202,15 @@ def download_daily_zip_from_github(github_token: str, daily_build: int, new_java
         archive.raise_for_status()
 
         with open(download_path, 'wb') as f:
-            for chunk in archive.iter_content(chunk_size=512 * 1024): 
+            for chunk in archive.iter_content(chunk_size=512 * 1024):
                 if chunk: # filter out keep-alive new chunks
                     f.write(chunk)
 
     return download_path
 
 def extract_daily_zip(client_zip_path: str) -> str:
+    """Extract the downloaded client zip"""
+
     tempdir = ensure_temp_dir()
 
     with zipfile.ZipFile(client_zip_path, "r") as f:
@@ -192,27 +218,37 @@ def extract_daily_zip(client_zip_path: str) -> str:
 
     zipfiles_names = [item for item in os.listdir(tempdir) if item.endswith(".zip")]
 
-    if len(zipfiles_names) > 0:
-        # extract inner zip file
-        inner_client_zip = os.path.join(tempdir, zipfiles_names[0])
-        inner_client_zip_dir = os.path.join(tempdir, "client")
-
-        os.mkdir(inner_client_zip_dir)
-        with zipfile.ZipFile(inner_client_zip, "r") as f:
-            f.extractall(inner_client_zip_dir)
-
-        return os.path.join(inner_client_zip_dir, "GT New Horizons daily")
-    else:
+    if len(zipfiles_names) == 0:
+        # no nested extraction is needed
         return os.path.join(tempdir, "GT New Horizons daily")
 
+    # extract inner zip file
+    inner_client_zip = os.path.join(tempdir, zipfiles_names[0])
+    inner_client_zip_dir = os.path.join(tempdir, "client")
+
+    os.mkdir(inner_client_zip_dir)
+    with zipfile.ZipFile(inner_client_zip, "r") as f:
+        f.extractall(inner_client_zip_dir)
+
+    return os.path.join(inner_client_zip_dir, "GT New Horizons daily")
+
 def install_new_daily(daily_path: str, instance_path: str) -> None:
-    remove_and_move(os.path.join(daily_path, "libraries"), os.path.join(instance_path, "libraries"))
-    remove_and_move(os.path.join(daily_path, "patches"), os.path.join(instance_path, "patches"))
-    remove_and_move(os.path.join(daily_path, "mmc-pack.json"), os.path.join(instance_path, "mmc-pack.json"))
-    remove_and_move(os.path.join(daily_path, ".minecraft", "config"), os.path.join(instance_path, ".minecraft", "config"))
-    remove_and_move(os.path.join(daily_path, ".minecraft", "mods"), os.path.join(instance_path, ".minecraft", "mods"))
+    """Install the given client dir"""
+
+    remove_and_move(os.path.join(daily_path, "libraries"),
+                    os.path.join(instance_path, "libraries"))
+    remove_and_move(os.path.join(daily_path, "patches"),
+                    os.path.join(instance_path, "patches"))
+    remove_and_move(os.path.join(daily_path, "mmc-pack.json"),
+                    os.path.join(instance_path, "mmc-pack.json"))
+    remove_and_move(os.path.join(daily_path, ".minecraft", "config"),
+                    os.path.join(instance_path, ".minecraft", "config"))
+    remove_and_move(os.path.join(daily_path, ".minecraft", "mods"),
+                    os.path.join(instance_path, ".minecraft", "mods"))
 
 def backup_instance(instance_path: str) -> str:
+    """Backup the currently installed client"""
+
     storage_path = ensure_storage_dir()
     backup_dir = os.path.join(storage_path, "backup")
 
@@ -240,6 +276,8 @@ def backup_instance(instance_path: str) -> str:
     return backup_path
 
 def restore_instance(instance_path: str, backup_zip: str) -> None:
+    """Restore client from previous backup"""
+
     if not os.path.isfile(backup_zip):
         raise FileNotFoundError()
     with zipfile.ZipFile(backup_zip, "r") as f:
@@ -252,9 +290,13 @@ def restore_instance(instance_path: str, backup_zip: str) -> None:
         f.extractall(instance_path)
 
 def add_additional_mods(additional_mods: list[str], instance_path: str, extracted_client_zip: str):
+    """Copy additional mods into client"""
+
     mods_dir = os.path.join(extracted_client_zip, ".minecraft", "mods")
-    
+
     for additional_mod in additional_mods:
+        # we keep it as elif for future features' sake
+        # pylint: disable-next=no-else-raise
         if additional_mod.startswith("http://") or additional_mod.startswith("https://"):
             raise NotImplementedError("Mod downloads are not yet implemented")
         elif additional_mod.endswith(".jar"):
@@ -265,11 +307,13 @@ def add_additional_mods(additional_mods: list[str], instance_path: str, extracte
                 raise FileNotFoundError()
         else:
             raise ValueError("Unknown additional mod type")
-        
+
         shutil.copy(mod_file, mods_dir)
         logger.info(f"added additional mod {os.path.basename(mod_file)}")
 
 def ensure_storage_dir() -> str:
+    """Ensure all storage directories exist and else create them"""
+
     storage_path = os.path.abspath("./storage")
 
     os.makedirs(os.path.join(storage_path, "backup"), exist_ok=True)
@@ -278,6 +322,8 @@ def ensure_storage_dir() -> str:
     return storage_path
 
 def ensure_temp_dir() -> str:
+    """Ensure the temporary directory exists and else create it"""
+
     temp_path = os.path.abspath("./temp")
 
     if os.path.isdir(temp_path):
@@ -288,6 +334,8 @@ def ensure_temp_dir() -> str:
     return temp_path
 
 def remove_and_move(source: str, destination: str) -> None:
+    """Delete and replace the given file or folder"""
+
     if os.path.isfile(source):
         os.remove(destination)
         shutil.move(source, os.path.join(destination))
