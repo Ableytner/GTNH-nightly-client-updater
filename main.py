@@ -89,7 +89,7 @@ def ask_user_for_input() -> int | None:
     while not user_input.isdigit() and user_input != "":
         try:
             user_input = input("which daily version do you want to install "
-                               f"(currently: {PersistentStorage.get("CURRENTLY_INSTALLED")}): ")
+                               f"(currently: {PersistentStorage.get("CURRENTLY_INSTALLED", default="unknown")}): ")
         except KeyboardInterrupt:
             return None
 
