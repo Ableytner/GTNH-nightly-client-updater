@@ -9,10 +9,11 @@ import zipfile
 import mcstatus
 import requests
 from abllib import PersistentStorage, log
+from abllib.fs import absolute
 
 logger = log.get_logger()
 
-CONFIG_PATH = "./config.json"
+CONFIG_PATH = absolute("./config.json")
 
 def main():
     """The main function"""
@@ -34,7 +35,7 @@ def main():
             target_daily = get_daily_build_number(server_host)
         else:
             host, port = server_host.split(":", maxsplit=1)
-            target_daily = get_daily_build_number(host, port)
+            target_daily = get_daily_build_number(host, int(port))
 
     if target_daily is not None:
         logger.info(f"found target daily build {target_daily}")
@@ -128,7 +129,7 @@ def download_daily_zip_from_mirror(daily_build: int, new_java: bool = False) -> 
         raise Exception("mirror server download only supports Java 21")
 
     storage_path = ensure_storage_dir()
-    download_path = os.path.join(storage_path, "download", f"daily{daily_build}-client.zip")
+    download_path = absolute(storage_path, "download", f"daily{daily_build}-client.zip")
 
     if os.path.isfile(download_path):
         logger.info("using cached client zip file")
@@ -156,7 +157,7 @@ def download_daily_zip_from_github(github_token: str, daily_build: int, new_java
     """Download given version zip from github (very slow)"""
 
     storage_path = ensure_storage_dir()
-    download_path = os.path.join(storage_path, "download", f"daily{daily_build}-client.zip")
+    download_path = absolute(storage_path, "download", f"daily{daily_build}-client.zip")
 
     if os.path.isfile(download_path):
         logger.info("using cached client zip file")
@@ -220,37 +221,37 @@ def extract_daily_zip(client_zip_path: str) -> str:
 
     if len(zipfiles_names) == 0:
         # no nested extraction is needed
-        return os.path.join(tempdir, "GT New Horizons daily")
+        return absolute(tempdir, "GT New Horizons daily")
 
     # extract inner zip file
-    inner_client_zip = os.path.join(tempdir, zipfiles_names[0])
-    inner_client_zip_dir = os.path.join(tempdir, "client")
+    inner_client_zip = absolute(tempdir, zipfiles_names[0])
+    inner_client_zip_dir = absolute(tempdir, "client")
 
     os.mkdir(inner_client_zip_dir)
     with zipfile.ZipFile(inner_client_zip, "r") as f:
         f.extractall(inner_client_zip_dir)
 
-    return os.path.join(inner_client_zip_dir, "GT New Horizons daily")
+    return absolute(inner_client_zip_dir, "GT New Horizons daily")
 
 def install_new_daily(daily_path: str, instance_path: str) -> None:
     """Install the given client dir"""
 
-    remove_and_move(os.path.join(daily_path, "libraries"),
-                    os.path.join(instance_path, "libraries"))
-    remove_and_move(os.path.join(daily_path, "patches"),
-                    os.path.join(instance_path, "patches"))
-    remove_and_move(os.path.join(daily_path, "mmc-pack.json"),
-                    os.path.join(instance_path, "mmc-pack.json"))
-    remove_and_move(os.path.join(daily_path, ".minecraft", "config"),
-                    os.path.join(instance_path, ".minecraft", "config"))
-    remove_and_move(os.path.join(daily_path, ".minecraft", "mods"),
-                    os.path.join(instance_path, ".minecraft", "mods"))
+    remove_and_move(absolute(daily_path, "libraries"),
+                    absolute(instance_path, "libraries"))
+    remove_and_move(absolute(daily_path, "patches"),
+                    absolute(instance_path, "patches"))
+    remove_and_move(absolute(daily_path, "mmc-pack.json"),
+                    absolute(instance_path, "mmc-pack.json"))
+    remove_and_move(absolute(daily_path, ".minecraft", "config"),
+                    absolute(instance_path, ".minecraft", "config"))
+    remove_and_move(absolute(daily_path, ".minecraft", "mods"),
+                    absolute(instance_path, ".minecraft", "mods"))
 
 def backup_instance(instance_path: str) -> str:
     """Backup the currently installed client"""
 
     storage_path = ensure_storage_dir()
-    backup_dir = os.path.join(storage_path, "backup")
+    backup_dir = absolute(storage_path, "backup")
 
     backup_ids = []
     for backup in os.listdir(backup_dir):
@@ -264,9 +265,10 @@ def backup_instance(instance_path: str) -> str:
 
     # delete old backup if over limit
     if len(backup_ids) > 5:
-        os.remove(os.path.join(backup_dir, f"backup-{backup_ids[0]}.zip"))
+        os.remove(absolute(backup_dir, f"backup-{backup_ids[0]}.zip"))
 
-    backup_path = os.path.join(backup_dir, f"backup-{backup_ids[-1] + 1}.zip")
+    current_backup_id = backup_ids[-1] + 1 if len(backup_ids) > 0 else 1
+    backup_path = absolute(backup_dir, f"backup-{current_backup_id}.zip")
 
     logger.info(f"backing up instance to '{backup_path}'...")
 
@@ -292,7 +294,7 @@ def restore_instance(instance_path: str, backup_zip: str) -> None:
 def add_additional_mods(additional_mods: list[str], instance_path: str, extracted_client_zip: str):
     """Copy additional mods into client"""
 
-    mods_dir = os.path.join(extracted_client_zip, ".minecraft", "mods")
+    mods_dir = absolute(extracted_client_zip, ".minecraft", "mods")
 
     for additional_mod in additional_mods:
         # we keep it as elif for future features' sake
@@ -302,7 +304,7 @@ def add_additional_mods(additional_mods: list[str], instance_path: str, extracte
         elif additional_mod.endswith(".jar"):
             mod_file = additional_mod
             if not os.path.isfile(mod_file):
-                mod_file = os.path.join(instance_path, ".minecraft", "mods", os.path.basename(additional_mod))
+                mod_file = absolute(instance_path, ".minecraft", "mods", os.path.basename(additional_mod))
             if not os.path.isfile(mod_file):
                 raise FileNotFoundError()
         else:
@@ -316,15 +318,15 @@ def ensure_storage_dir() -> str:
 
     storage_path = os.path.abspath("./storage")
 
-    os.makedirs(os.path.join(storage_path, "backup"), exist_ok=True)
-    os.makedirs(os.path.join(storage_path, "download"), exist_ok=True)
+    os.makedirs(absolute(storage_path, "backup"), exist_ok=True)
+    os.makedirs(absolute(storage_path, "download"), exist_ok=True)
 
     return storage_path
 
 def ensure_temp_dir() -> str:
     """Ensure the temporary directory exists and else create it"""
 
-    temp_path = os.path.abspath("./temp")
+    temp_path = absolute("./temp")
 
     if os.path.isdir(temp_path):
         shutil.rmtree(temp_path)
@@ -338,12 +340,17 @@ def remove_and_move(source: str, destination: str) -> None:
 
     if os.path.isfile(source):
         os.remove(destination)
-        shutil.move(source, os.path.join(destination))
+        shutil.move(source, absolute(destination))
     elif os.path.isdir(source):
         shutil.rmtree(destination)
-        shutil.move(source, os.path.join(destination, ".."))
+        shutil.move(source, absolute(destination, ".."))
     else:
         raise FileNotFoundError()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.exception("Unhandled error occured:")
+
+    input("Press any button to quit...")

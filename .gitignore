@@ -5,4 +5,5 @@
 *\storage
 *\temp
 *.pyc
+*.jar
 config.json
