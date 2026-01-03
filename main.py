@@ -107,7 +107,7 @@ def get_daily_build_number(server_host: str, server_port: int = 25565) -> int | 
     try:
         status = server.status()
         motd = str(status.motd.raw)
-    except ConnectionResetError:
+    except (ConnectionResetError, BrokenPipeError):
         logger.warning(f"cannot reach server {server_host}:{server_port}")
         return None
 
@@ -303,15 +303,17 @@ def add_additional_mods(additional_mods: list[str], instance_path: str, extracte
             raise NotImplementedError("Mod downloads are not yet implemented")
         elif additional_mod.endswith(".jar"):
             mod_file = additional_mod
-            if not os.path.isfile(mod_file):
+            if os.path.isfile(mod_file):
+                logger.info(f"added additional mod {os.path.basename(mod_file)} from current directory")
+            else:
                 mod_file = absolute(instance_path, ".minecraft", "mods", os.path.basename(additional_mod))
-            if not os.path.isfile(mod_file):
-                raise FileNotFoundError()
+                if not os.path.isfile(mod_file):
+                    raise FileNotFoundError()
+                logger.info(f"added additional mod {os.path.basename(mod_file)} from instance directory")
         else:
             raise ValueError("Unknown additional mod type")
 
         shutil.copy(mod_file, mods_dir)
-        logger.info(f"added additional mod {os.path.basename(mod_file)}")
 
 def ensure_storage_dir() -> str:
     """Ensure all storage directories exist and else create them"""
