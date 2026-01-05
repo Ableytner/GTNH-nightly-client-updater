@@ -39,13 +39,15 @@ def main():
 
     if target_daily is not None:
         logger.info(f"found target daily build {target_daily}")
-    else:
-        target_daily = ask_user_for_input()
-        if target_daily is None:
-            sys.exit(0)
 
-    if "CURRENTLY_INSTALLED" in PersistentStorage and target_daily == PersistentStorage["CURRENTLY_INSTALLED"]:
-        logger.info("target daily build is already installed, exiting...")
+        if PersistentStorage.get("CURRENTLY_INSTALLED", None) == target_daily:
+            logger.info("target daily build is already installed")
+
+            target_daily = ask_user_for_input("optionally enter another version to install")
+    else:
+        target_daily = ask_user_for_input("which daily version do you want to install")
+
+    if target_daily is None:
         return
 
     try:
@@ -53,7 +55,7 @@ def main():
     except Exception as e:
         logger.warning(str(e))
 
-        if "GITHUB_TOKEN" not in PersistentStorage or PersistentStorage["GITHUB_TOKEN"] == "":
+        if PersistentStorage.get("GITHUB_TOKEN", "") == "":
             # pylint: disable-next=raise-missing-from
             raise Exception("You have to provide a GITHUB_TOKEN in config.json in order to download from github")
 
@@ -83,21 +85,19 @@ def main():
     logger.info(f"update to daily-{target_daily} succeeded!")
     shutil.rmtree(ensure_temp_dir())
 
-def ask_user_for_input() -> int | None:
+def ask_user_for_input(prompt: str) -> int | None:
     """Ask for the version to install"""
 
-    user_input = "a"
-    while not user_input.isdigit() and user_input != "":
+    while True:
         try:
-            user_input = input("which daily version do you want to install "
-                               f"(currently: {PersistentStorage.get("CURRENTLY_INSTALLED", default="unknown")}): ")
+            user_input = input(f"{prompt} (currently: {PersistentStorage.get("CURRENTLY_INSTALLED", default="unknown")}): ")
+
+            if user_input in ["", "n", "no", "q", "quit", "exit"]:
+                return None
+            if user_input.isdigit():
+                return int(user_input)
         except KeyboardInterrupt:
             return None
-
-    if user_input.isdigit():
-        return int(user_input)
-
-    return None
 
 def get_daily_build_number(server_host: str, server_port: int = 25565) -> int | None:
     """Try to read version number from server MOTD"""
@@ -138,12 +138,12 @@ def download_daily_zip_from_mirror(daily_build: int, new_java: bool = False) -> 
     session = requests.Session()
     download_url = f"https://files.ableytner.at/daily{daily_build}-client.zip"
 
-    r = session.head(download_url)
+    r = session.head(download_url, timeout=10)
     if r.status_code != 200:
         raise Exception("client zip file not found on ableytner's mirror server")
 
     logger.info("downloading client zip file from ableytner's mirror server...")
-    with session.get(download_url, stream=True) as archive:
+    with session.get(download_url, stream=True, timeout=10) as archive:
         archive.raise_for_status()
 
         with open(download_path, 'wb') as f:
@@ -172,7 +172,8 @@ def download_daily_zip_from_github(github_token: str, daily_build: int, new_java
 
     r = session.get(
         "https://api.github.com/repos/GTNewHorizons/DreamAssemblerXXL/actions/workflows/daily-modpack-build.yml/runs",
-        params={"per_page": "100"}
+        params={"per_page": "100"},
+        timeout=10
     )
 
     runs = r.json()["workflow_runs"]
@@ -183,7 +184,7 @@ def download_daily_zip_from_github(github_token: str, daily_build: int, new_java
     if target_run is None:
         raise Exception("target daily build could not be fetched, maybe its older than 100 days?")
 
-    r = session.get(f"{target_run['url']}/artifacts")
+    r = session.get(f"{target_run['url']}/artifacts", timeout=10)
 
     artifacts = r.json()["artifacts"]
     target_artifact = None
@@ -199,7 +200,7 @@ def download_daily_zip_from_github(github_token: str, daily_build: int, new_java
         raise Exception("target client zipfile could not be fetched")
 
     logger.info("downloading client zip file from github, this will take a few minutes...")
-    with session.get(target_artifact['archive_download_url'], stream=True) as archive:
+    with session.get(target_artifact['archive_download_url'], stream=True, timeout=10) as archive:
         archive.raise_for_status()
 
         with open(download_path, 'wb') as f:
