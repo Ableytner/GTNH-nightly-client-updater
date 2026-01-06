@@ -132,8 +132,15 @@ def download_daily_zip_from_mirror(daily_build: int, new_java: bool = False) -> 
     download_path = absolute(storage_path, "download", f"daily{daily_build}-client.zip")
 
     if os.path.isfile(download_path):
-        logger.info("using cached client zip file")
-        return download_path
+        logger.info("testing cached client zip file")
+        try:
+            with zipfile.ZipFile(download_path, "r") as f:
+                pass
+            logger.info("success!")
+            return download_path
+        except zipfile.BadZipFile:
+            logger.info("failure: file is corrupt")
+            os.remove(download_path)
 
     session = requests.Session()
     download_url = f"https://files.ableytner.at/daily{daily_build}-client.zip"
