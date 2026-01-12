@@ -3,7 +3,6 @@
 import os
 import re
 import shutil
-import sys
 import zipfile
 
 import mcstatus
@@ -25,6 +24,12 @@ def main():
 
     if not os.path.isfile(CONFIG_PATH):
         raise FileNotFoundError()
+
+    fixed_path = ensure_instance_path(PersistentStorage["INSTANCE_PATH"])
+    if fixed_path is None:
+        return
+    PersistentStorage["INSTANCE_PATH"] = fixed_path
+    PersistentStorage.save_to_disk()
 
     target_daily = None
 
@@ -85,12 +90,35 @@ def main():
     logger.info(f"update to daily-{target_daily} succeeded!")
     shutil.rmtree(ensure_temp_dir())
 
+def ensure_instance_path(path: str) -> str | None:
+    """Verify if the given instance dir is valid, and return a normalized version"""
+
+    path = absolute(path)
+    if not os.path.isdir(path):
+        logger.error("Instance path doesn't exist!")
+
+    if path.strip("/").endswith(".minecraft"):
+        path = absolute(os.path.dirname(path))
+
+    if not os.path.isdir(absolute(path, ".minecraft")):
+        logger.error("Instance path doesn't contain .minecraft folder!")
+        return None
+
+    if not os.path.isdir(absolute(path, ".minecraft", "mods")) or \
+       not os.path.isdir(absolute(path, ".minecraft", "config")):
+        logger.error(".minecraft directory doesn't contain expected folders! "
+                     "Make sure to launch your instance at least once before trying to update!")
+        return None
+
+    return path
+
 def ask_user_for_input(prompt: str) -> int | None:
     """Ask for the version to install"""
 
     while True:
         try:
-            user_input = input(f"{prompt} (currently: {PersistentStorage.get("CURRENTLY_INSTALLED", default="unknown")}): ")
+            installed_version = PersistentStorage.get("CURRENTLY_INSTALLED", default="unknown")
+            user_input = input(f"{prompt} (currently: {installed_version}): ")
 
             if user_input in ["", "n", "no", "q", "quit", "exit"]:
                 return None
@@ -312,7 +340,7 @@ def add_additional_mods(additional_mods: list[str], instance_path: str, extracte
         elif additional_mod.endswith(".jar"):
             mod_file = additional_mod
             if os.path.isfile(mod_file):
-                logger.info(f"added additional mod {os.path.basename(mod_file)} from current directory")
+                logger.info(f"added additional mod {os.path.basename(mod_file)} from updater directory")
             else:
                 mod_file = absolute(instance_path, ".minecraft", "mods", os.path.basename(additional_mod))
                 if not os.path.isfile(mod_file):
@@ -349,10 +377,12 @@ def remove_and_move(source: str, destination: str) -> None:
     """Delete and replace the given file or folder"""
 
     if os.path.isfile(source):
-        os.remove(destination)
+        if os.path.isfile(destination):
+            os.remove(destination)
         shutil.move(source, absolute(destination))
     elif os.path.isdir(source):
-        shutil.rmtree(destination)
+        if os.path.isdir(destination):
+            shutil.rmtree(destination)
         shutil.move(source, absolute(destination, ".."))
     else:
         raise FileNotFoundError()
