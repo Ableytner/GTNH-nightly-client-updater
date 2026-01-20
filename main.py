@@ -61,8 +61,9 @@ def main():
         logger.warning(str(e))
 
         if PersistentStorage.get("GITHUB_TOKEN", "") == "":
-            # pylint: disable-next=raise-missing-from
-            raise Exception("You have to provide a GITHUB_TOKEN in config.json in order to download from github")
+            logger.warning("You have to provide a GITHUB_TOKEN in config.json in order to download from github")
+            logger.error("No download options left, exiting...")
+            return
 
         client_zip = download_daily_zip_from_github(
             PersistentStorage["GITHUB_TOKEN"],
