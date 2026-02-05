@@ -172,7 +172,7 @@ def download_daily_zip_from_mirror(daily_build: int, new_java: bool = False) -> 
             os.remove(download_path)
 
     session = requests.Session()
-    download_url = f"https://files.ableytner.at/daily{daily_build}-client.zip"
+    download_url = f"https://cdn.ableytner.at/gtnh/daily{daily_build}-client.zip"
 
     r = session.head(download_url, timeout=10)
     if r.status_code != 200:
