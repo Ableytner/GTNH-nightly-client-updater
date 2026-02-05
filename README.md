@@ -66,7 +66,7 @@ The .jar file of your mod can be either in this directory, or already installed 
 
 ## Download daily client from Github
 
-If you want to download a daily build older than 5 days, or my download mirror isn't available, you need to provide a Github access token.
+If you want to download a daily build older than 10 versions, or my download mirror isn't available, Github can be used as a fallback. For this you need to provide a Github access token.
 
 To create this token:
 * head to https://github.com/settings/personal-access-tokens/new

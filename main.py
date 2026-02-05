@@ -176,9 +176,9 @@ def download_daily_zip_from_mirror(daily_build: int, new_java: bool = False) -> 
 
     r = session.head(download_url, timeout=10)
     if r.status_code != 200:
-        raise Exception("client zip file not found on ableytner's mirror server")
+        raise Exception("client zip file not found on ableytners mirror server")
 
-    logger.info("downloading client zip file from ableytner's mirror server...")
+    logger.info("downloading client zip file from ableytners mirror server...")
     with session.get(download_url, stream=True, timeout=10) as archive:
         archive.raise_for_status()
 
