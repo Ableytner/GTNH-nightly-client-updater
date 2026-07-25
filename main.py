@@ -155,7 +155,7 @@ def download_daily_zip_from_mirror(daily_build: int, new_java: bool = False) -> 
     """Download given version zip from ableytners' mirror server"""
 
     if not new_java:
-        raise Exception("mirror server download only supports Java 21")
+        raise Exception("mirror server download only supports Java greater than 8")
 
     storage_path = ensure_storage_dir()
     download_path = absolute(storage_path, "download", f"daily{daily_build}-client.zip")
@@ -200,43 +200,25 @@ def download_daily_zip_from_github(github_token: str, daily_build: int, new_java
         return download_path
 
     session = requests.Session()
+    api_url = f"https://api.ableytner.at/gtnh/daily/{daily_build}"
+
+    r = session.get(api_url, timeout=10)
+    if r.status_code != 200:
+        raise Exception("client zip file not available in API, was it parsed correctly?")
+
+    if r.json()["run_number"] != daily_build:
+        raise Exception("API returned incorrect daily build.")
+
+    session = requests.Session()
     session.headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {github_token}",
         "X-GitHub-Api-Version": "2022-11-28"
     }
-
-    r = session.get(
-        "https://api.github.com/repos/GTNewHorizons/DreamAssemblerXXL/actions/workflows/daily-modpack-build.yml/runs",
-        params={"per_page": "100"},
-        timeout=10
-    )
-
-    runs = r.json()["workflow_runs"]
-    target_run = None
-    for run in runs:
-        if run["run_number"] == daily_build:
-            target_run = run
-    if target_run is None:
-        raise Exception("target daily build could not be fetched, maybe its older than 100 days?")
-
-    r = session.get(f"{target_run['url']}/artifacts", timeout=10)
-
-    artifacts = r.json()["artifacts"]
-    target_artifact = None
-    if new_java:
-        for artifact in artifacts:
-            if "mmcprism-new-java" in artifact["name"]:
-                target_artifact = artifact
-    else:
-        for artifact in artifacts:
-            if "mmcprism-java8" in artifact["name"]:
-                target_artifact = artifact
-    if target_artifact is None:
-        raise Exception("target client zipfile could not be fetched")
+    download_url = r.json()["downloads"]["client"]
 
     logger.info("downloading client zip file from github, this will take a few minutes...")
-    with session.get(target_artifact['archive_download_url'], stream=True, timeout=10) as archive:
+    with session.get(download_url, stream=True, timeout=10) as archive:
         archive.raise_for_status()
 
         with open(download_path, 'wb') as f:
