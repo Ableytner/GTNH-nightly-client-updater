@@ -116,10 +116,24 @@ def ensure_instance_path(path: str) -> str | None:
 def ask_user_for_input(prompt: str) -> int | None:
     """Ask for the version to install"""
 
+    installed_version = PersistentStorage.get("CURRENTLY_INSTALLED", default="unknown")
+    prompt += f" (currently: {installed_version}"
+
+    try:
+        versionapi_url = f"https://api.ableytner.at/gtnh/daily/latest"
+        r = requests.get(versionapi_url, timeout=10)
+        if r.ok:
+            run_number = r.json().get("run_number", None)
+            if run_number is not None:
+                prompt += f", latest: {run_number}"
+    except:
+        pass
+
+    prompt += "): "
+
     while True:
         try:
-            installed_version = PersistentStorage.get("CURRENTLY_INSTALLED", default="unknown")
-            user_input = input(f"{prompt} (currently: {installed_version}): ")
+            user_input = input(prompt)
 
             if user_input in ["", "n", "no", "q", "quit", "exit"]:
                 return None
@@ -171,15 +185,14 @@ def download_daily_zip_from_mirror(daily_build: int, new_java: bool = False) -> 
             logger.info("failure: file is corrupt")
             os.remove(download_path)
 
-    session = requests.Session()
     download_url = f"https://cdn.ableytner.at/gtnh/daily{daily_build}-client.zip"
 
-    r = session.head(download_url, timeout=10)
+    r = requests.head(download_url, timeout=10)
     if r.status_code != 200:
         raise Exception("client zip file not found on ableytners mirror server")
 
     logger.info("downloading client zip file from ableytners mirror server...")
-    with session.get(download_url, stream=True, timeout=10) as archive:
+    with requests.get(download_url, stream=True, timeout=10) as archive:
         archive.raise_for_status()
 
         with open(download_path, 'wb') as f:
@@ -199,10 +212,8 @@ def download_daily_zip_from_github(github_token: str, daily_build: int, new_java
         logger.info("using cached client zip file")
         return download_path
 
-    session = requests.Session()
     api_url = f"https://api.ableytner.at/gtnh/daily/{daily_build}"
-
-    r = session.get(api_url, timeout=10)
+    r = requests.get(api_url, timeout=10)
     if r.status_code != 200:
         raise Exception("client zip file not available in API, was it parsed correctly?")
 
