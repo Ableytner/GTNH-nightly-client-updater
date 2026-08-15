@@ -119,6 +119,7 @@ def ask_user_for_input(prompt: str) -> int | None:
     installed_version = PersistentStorage.get("CURRENTLY_INSTALLED", default="unknown")
     prompt += f" (currently: {installed_version}"
 
+    latest_found: int | None = None
     try:
         versionapi_url = f"https://api.ableytner.at/gtnh/daily/latest"
         r = requests.get(versionapi_url, timeout=10)
@@ -126,6 +127,7 @@ def ask_user_for_input(prompt: str) -> int | None:
             run_number = r.json().get("run_number", None)
             if run_number is not None:
                 prompt += f", latest: {run_number}"
+                latest_found = run_number
     except:
         pass
 
@@ -137,6 +139,8 @@ def ask_user_for_input(prompt: str) -> int | None:
 
             if user_input in ["", "n", "no", "q", "quit", "exit"]:
                 return None
+            if user_input == "latest" and latest_found is not None:
+                return int(latest_found)
             if user_input.isdigit():
                 return int(user_input)
         except KeyboardInterrupt:
